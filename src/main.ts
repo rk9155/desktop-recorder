@@ -13,6 +13,8 @@ import path from "node:path";
 const createWindow = () => {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
+    x: 50,
+    y: 50,
     width: 800,
     height: 600,
     titleBarStyle: "hidden",
@@ -43,7 +45,7 @@ const createWindow = () => {
 
   // Create control panel window
   const controlWindow = new BrowserWindow({
-    width: 100,
+    width: 400,
     height: 450,
     frame: false,
     transparent: true,
@@ -55,7 +57,30 @@ const createWindow = () => {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: true,
+      webSecurity: false,
     },
+  });
+
+  // Create overlay window for drawing
+  const overlayWindow = new BrowserWindow({
+    width: screen.getPrimaryDisplay().workAreaSize.width,
+    height: screen.getPrimaryDisplay().workAreaSize.height,
+    x: 0,
+    y: 0,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    focusable: true,
+    type: "toolbar",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: true,
+      webSecurity: false,
+    },
+    skipTaskbar: true,
+    hasShadow: false,
+    roundedCorners: false,
   });
 
   const NOTIFICATION_TITLE = "Basic Notification";
@@ -190,11 +215,21 @@ const createWindow = () => {
     }
   });
 
+  ipcMain.handle("get-system-audio", async () => {
+    const sources = await desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: { width: 0, height: 0 },
+    });
+
+    return sources[0].id;
+  });
+
   // Load different routes for each window
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
     webcamWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#/webcam`);
     controlWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#/controls`);
+    overlayWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#/overlay`);
   } else {
     mainWindow.loadFile(
       path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
@@ -207,11 +242,16 @@ const createWindow = () => {
       path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
       { hash: "controls" }
     );
+    overlayWindow.loadFile(
+      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
+      { hash: "overlay" }
+    );
   }
 
-  // Initially hide the webcam and control windows
+  // Initially hide the webcam, control, and overlay windows
   webcamWindow.hide();
   controlWindow.hide();
+  overlayWindow.hide();
 
   // Handle window show/hide based on route changes
   ipcMain.handle("show-recording-windows", () => {
@@ -228,38 +268,83 @@ const createWindow = () => {
 
     // Position control window at middle right
     controlWindow.setBounds({
-      x: screenWidth - 120,
+      x: screenWidth - 420,
       y: Math.floor((screenHeight - 450) / 2),
-      width: 100,
+      width: 400,
       height: 450,
+    });
+
+    // Position overlay window to cover the entire screen
+    overlayWindow.setBounds({
+      x: 0,
+      y: 0,
+      width: screenWidth,
+      height: screenHeight,
     });
 
     webcamWindow.setAlwaysOnTop(true, "floating");
     controlWindow.setAlwaysOnTop(true, "floating");
+    overlayWindow.setAlwaysOnTop(true, "screen-saver");
+    overlayWindow.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: true,
+    });
 
     webcamWindow.show();
     controlWindow.show();
+    overlayWindow.show();
+    overlayWindow.setIgnoreMouseEvents(true);
   });
 
   // Add these handlers
   ipcMain.handle("minimize-windows", () => {
     webcamWindow.hide();
     controlWindow.hide();
+    overlayWindow.hide();
   });
 
   ipcMain.handle("close-windows", () => {
     webcamWindow.close();
     controlWindow.close();
+    overlayWindow.close();
+  });
+
+  ipcMain.handle("hide-recording-windows", () => {
+    webcamWindow.hide();
+    controlWindow.hide();
+    overlayWindow.hide();
+  });
+
+  ipcMain.handle("show-preview", (_, url: string) => {
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send("show-preview", url);
   });
 
   // Open the DevTools.
   mainWindow.webContents.openDevTools();
+  controlWindow.webContents.openDevTools();
 
   // Add this near the top of createWindow function
   if (process.platform === "darwin") {
     // Request screen capture permission if not granted
     systemPreferences.getMediaAccessStatus("screen");
   }
+
+  // Add IPC handlers for overlay
+  ipcMain.handle("set-overlay-interactive", (_event, interactive: boolean) => {
+    overlayWindow.setIgnoreMouseEvents(!interactive);
+  });
+
+  // Add a new IPC handler for overlay window bounds
+  ipcMain.handle(
+    "set-overlay-bounds",
+    (
+      _event,
+      bounds: { x: number; y: number; width: number; height: number }
+    ) => {
+      overlayWindow.setBounds(bounds);
+    }
+  );
 };
 
 app.on("ready", createWindow);
@@ -268,6 +353,10 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+app.whenReady().then(() => {
+  app.commandLine.appendSwitch("enable-experimental-web-platform-features");
 });
 
 app.on("activate", () => {

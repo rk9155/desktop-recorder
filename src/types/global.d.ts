@@ -15,5 +15,40 @@ interface Window {
         appIcon: string | null;
       }>
     >;
+    hideRecordingWindows: () => Promise<void>;
+    showPreview: (url: string) => Promise<void>;
+    onShowPreview: (callback: (url: string) => void) => void;
+    removePreviewListener: () => void;
+    getSystemAudioStream: () => Promise<string>;
+    setOverlayInteractive: (interactive: boolean) => Promise<void>;
+    setOverlayBounds: (bounds: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }) => Promise<void>;
   };
+}
+
+interface MediaDevices {
+  getDisplayMedia(constraints?: MediaStreamConstraints): Promise<MediaStream>;
+}
+
+interface AudioConstraintSet {
+  mandatory?: {
+    chromeMediaSource?: string;
+    chromeMediaSourceId?: string;
+  };
+}
+
+interface MediaTrackConstraintSet {
+  mandatory?: {
+    chromeMediaSource?: string;
+    chromeMediaSourceId?: string;
+  };
+}
+
+interface MediaStreamConstraints {
+  video?: boolean | MediaTrackConstraints;
+  audio?: boolean | MediaTrackConstraints;
 }
