@@ -15,12 +15,8 @@ contextBridge.exposeInMainWorld("electronApi", {
     ipcRenderer.on("show-preview", (_: any, url: string) => callback(url)),
   removePreviewListener: () => ipcRenderer.removeAllListeners("show-preview"),
   getSystemAudioStream: () => ipcRenderer.invoke("get-system-audio"),
-  setOverlayInteractive: (interactive: boolean) =>
-    ipcRenderer.invoke("set-overlay-interactive", interactive),
-  setOverlayBounds: (bounds: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }) => ipcRenderer.invoke("set-overlay-bounds", bounds),
+  recordClick: (click: { x: number; y: number }) =>
+    ipcRenderer.invoke("record-click", click),
+  startMetadataTracking: () => ipcRenderer.invoke("start-metadata-tracking"),
+  stopMetadataTracking: () => ipcRenderer.invoke("stop-metadata-tracking"),
 });

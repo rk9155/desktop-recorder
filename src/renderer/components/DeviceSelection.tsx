@@ -212,7 +212,7 @@ export default function DeviceSelection() {
           onClick={handleStartRecording}
           disabled={!selectedAudio || !selectedVideo || !selectedScreen}
         >
-          Start Recording
+          Next
         </Button>
       </div>
     </div>

@@ -27,6 +27,9 @@ interface Window {
       width: number;
       height: number;
     }) => Promise<void>;
+    recordClick: (click: { x: number; y: number }) => Promise<void>;
+    startMetadataTracking: () => Promise<void>;
+    stopMetadataTracking: () => Promise<void>;
   };
 }
 

@@ -11,9 +11,7 @@ export class RecordingManager {
     screenStream: MediaStream,
     microphoneStream: MediaStream | null,
     webcamStream: MediaStream | null,
-    systemAudioStream: MediaStream | null,
-    onDataAvailable: (blob: Blob) => void,
-    onAudioLevel?: (level: number) => void
+    systemAudioStream: MediaStream | null
   ) {
     try {
       // Store streams for cleanup
@@ -56,11 +54,6 @@ export class RecordingManager {
 
       const combinedStream = new MediaStream(tracks);
 
-      // Setup audio analysis if we have microphone stream
-      if (onAudioLevel && microphoneStream) {
-        this.setupAudioAnalysis(microphoneStream, onAudioLevel);
-      }
-
       // Try different MIME types
       const mimeTypes = [
         "video/webm;codecs=vp8,opus",
@@ -91,7 +84,6 @@ export class RecordingManager {
       this.mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           this.recordedChunks.push(event.data);
-          onDataAvailable(event.data);
         }
       };
 

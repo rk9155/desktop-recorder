@@ -7,10 +7,16 @@ export default defineConfig({
   base: "./",
   build: {
     assetsDir: "assets",
+    rollupOptions: {
+      input: {
+        main: "./src/main.ts",
+      },
+    },
   },
   resolve: {
     alias: {
-      "@assets": "/assets", // Adjust the path according to your project structure
+      "@assets": "/assets",
+      "@scripts": "/scripts",
     },
   },
 });

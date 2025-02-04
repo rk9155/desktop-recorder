@@ -9,9 +9,7 @@ import appLogo from "../assets/images/app-logo.png";
 import { useEffect, useState } from "react";
 import DeviceSelection from "./components/DeviceSelection";
 import WebcamPreview from "./components/WebcamPreview";
-import ControlPanel from "./components/ControlPanel";
-import { PreviewModal } from "./components/PreviewModal";
-import { OverlayWindow } from "./components/OverlayWindow";
+import RecordingPage from "./components/RecordingPage";
 
 function PermissionsPage() {
   const navigate = useNavigate();
@@ -164,44 +162,8 @@ function PermissionsPage() {
   );
 }
 
-function RecordingPage() {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    window.electronApi?.showRecordingWindows();
-
-    const handlePreview = (url: string) => {
-      setPreviewUrl(url);
-    };
-
-    window.electronApi?.onShowPreview(handlePreview);
-
-    return () => {
-      window.electronApi?.removePreviewListener();
-    };
-  }, []);
-
-  const handleClosePreview = () => {
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(null);
-    }
-  };
-
-  return (
-    <div style={{ padding: 20 }}>
-      <Typography.Title level={4}>Recording in Progress</Typography.Title>
-      <PreviewModal videoUrl={previewUrl} onClose={handleClosePreview} />
-    </div>
-  );
-}
-
 function WebcamWindow() {
   return <WebcamPreview />;
-}
-
-function ControlsWindow() {
-  return <ControlPanel />;
 }
 
 export default function App() {
@@ -212,8 +174,6 @@ export default function App() {
         <Route path="/device-selection" element={<DeviceSelection />} />
         <Route path="/recording" element={<RecordingPage />} />
         <Route path="/webcam" element={<WebcamWindow />} />
-        <Route path="/controls" element={<ControlsWindow />} />
-        <Route path="/overlay" element={<OverlayWindow />} />
       </Routes>
     </Router>
   );

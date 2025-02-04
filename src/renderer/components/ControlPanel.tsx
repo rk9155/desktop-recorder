@@ -1,26 +1,19 @@
 import { useState, useEffect } from "react";
-import { Button, Space, Tooltip, message } from "antd";
-import {
-  SettingOutlined,
-  CameraOutlined,
-  AudioOutlined,
-  DesktopOutlined,
-  CloseOutlined,
-} from "@ant-design/icons";
+import { Button, message, Typography } from "antd";
 import { recordingManager } from "../services/RecordingManager";
-import { RecordingControls } from "./RecordingControls";
+import { CheckOne, PauseOne, PlayOne, Viewfinder } from "@icon-park/react";
+import { formatTime } from "../utils/utils";
 
 export default function ControlPanel() {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [audioLevel, setAudioLevel] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState("00:00");
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (isRecording && !isPaused) {
       timer = setInterval(() => {
-        setDuration(recordingManager.getRecordingDuration());
+        setDuration(formatTime(recordingManager.getRecordingDuration()));
       }, 1000);
     }
     return () => clearInterval(timer);
@@ -45,19 +38,6 @@ export default function ControlPanel() {
         audio: false,
       } as any);
 
-      // Get the video track settings to determine screen bounds
-      const videoTrack = screenStream.getVideoTracks()[0];
-      const settings = videoTrack.getSettings();
-
-      // Set overlay bounds to match the screen being recorded
-      await window.electronApi?.setOverlayBounds({
-        x: settings.left || 0,
-        y: settings.top || 0,
-        width: settings.width || window.screen.width,
-        height: settings.height || window.screen.height,
-      });
-
-      // Get microphone audio
       let audioStream: MediaStream | null = null;
       try {
         audioStream = await navigator.mediaDevices.getUserMedia({
@@ -108,16 +88,12 @@ export default function ControlPanel() {
         screenStream,
         audioStream,
         videoStream,
-        systemAudioStream,
-        (blob) => {
-          console.log("Received data chunk:", blob.size);
-        },
-        setAudioLevel
+        systemAudioStream
       );
 
       if (success) {
         setIsRecording(true);
-        message.success("Recording started");
+        window.electronApi?.startMetadataTracking();
       }
     } catch (error) {
       console.error("Failed to start recording:", error);
@@ -145,10 +121,12 @@ export default function ControlPanel() {
       recordingManager.cleanup();
       window.electronApi?.hideRecordingWindows();
       window.electronApi?.showPreview(URL.createObjectURL(blob));
-
+      window.electronApi?.stopMetadataTracking().then((metadata) => {
+        console.log(metadata);
+      });
       setIsRecording(false);
       setIsPaused(false);
-      setDuration(0);
+      setDuration("00:00");
       message.success("Recording completed");
     }
   };
@@ -156,63 +134,34 @@ export default function ControlPanel() {
   return (
     <div
       style={{
-        position: "fixed",
-        right: 20,
-        top: "50%",
-        transform: "translateY(-50%)",
-        backgroundColor: "#fff",
-        padding: "15px 10px",
-        borderRadius: 12,
-        boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
         display: "flex",
         flexDirection: "column",
         gap: 16,
-        zIndex: 9999,
+        justifyContent: "center",
+        alignItems: "center",
       }}
     >
-      <RecordingControls
-        isRecording={isRecording}
-        isPaused={isPaused}
-        audioLevel={audioLevel}
-        duration={duration}
-        onStart={handleStartRecording}
-        onPause={handlePauseRecording}
-        onResume={handlePauseRecording}
-        onStop={handleStopRecording}
-      />
-
-      <Space direction="vertical" size={16}>
-        <Tooltip title="Camera Settings" placement="left">
-          <Button shape="circle" icon={<CameraOutlined />} size="large" />
-        </Tooltip>
-        <Tooltip title="Audio Settings" placement="left">
-          <Button shape="circle" icon={<AudioOutlined />} size="large" />
-        </Tooltip>
-        <Tooltip title="Screen Settings" placement="left">
-          <Button shape="circle" icon={<DesktopOutlined />} size="large" />
-        </Tooltip>
-        <Tooltip title="More Settings" placement="left">
-          <Button shape="circle" icon={<SettingOutlined />} size="large" />
-        </Tooltip>
-      </Space>
-
-      <div
-        style={{
-          width: "100%",
-          height: 1,
-          backgroundColor: "#eee",
-          margin: "8px 0",
-        }}
-      />
-
-      <Tooltip title="Close" placement="left">
-        <Button
-          shape="circle"
-          icon={<CloseOutlined />}
-          size="large"
-          onClick={() => window.electronApi?.showRecordingWindows()}
-        />
-      </Tooltip>
+      <div style={{ display: "flex", flexDirection: "row", gap: 16 }}>
+        {isRecording ? (
+          <Button onClick={handleStopRecording} icon={<CheckOne />}>
+            Stop Recording
+          </Button>
+        ) : (
+          <Button onClick={handleStartRecording} icon={<Viewfinder />}>
+            Start Recording
+          </Button>
+        )}
+        {isPaused ? (
+          <Button onClick={handlePauseRecording} icon={<PlayOne />}>
+            Resume
+          </Button>
+        ) : (
+          <Button onClick={handlePauseRecording} icon={<PauseOne />}>
+            Pause
+          </Button>
+        )}
+      </div>
+      <Typography.Text>{duration}</Typography.Text>
     </div>
   );
 }

@@ -9,14 +9,32 @@ import {
   desktopCapturer,
 } from "electron";
 import path from "node:path";
+const { spawn } = require("child_process");
+
+let clickEvents: Array<{
+  x: number;
+  y: number;
+  timestamp: number;
+}> = [];
+let cursorPositions: Array<{ x: number; y: number; timestamp: number }> = [];
+let cursorTrackingInterval: NodeJS.Timeout | null = null;
 
 const createWindow = () => {
+  // Get the primary display dimensions
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } =
+    primaryDisplay.workAreaSize;
+  const windowWidth = 800;
+  const windowHeight = 450;
+  const xPosition = screenWidth - windowWidth - 20;
+  const yPosition = screenHeight - windowHeight - 20;
+
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    x: 50,
-    y: 50,
-    width: 800,
-    height: 600,
+    x: xPosition,
+    y: yPosition,
+    width: windowWidth,
+    height: windowHeight,
     titleBarStyle: "hidden",
     alwaysOnTop: true,
     webPreferences: {
@@ -41,46 +59,6 @@ const createWindow = () => {
       contextIsolation: true,
       nodeIntegration: true,
     },
-  });
-
-  // Create control panel window
-  const controlWindow = new BrowserWindow({
-    width: 400,
-    height: 450,
-    frame: false,
-    transparent: true,
-    resizable: false,
-    skipTaskbar: true,
-    hasShadow: true,
-    type: "toolbar", // This makes it float above other windows
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: true,
-      webSecurity: false,
-    },
-  });
-
-  // Create overlay window for drawing
-  const overlayWindow = new BrowserWindow({
-    width: screen.getPrimaryDisplay().workAreaSize.width,
-    height: screen.getPrimaryDisplay().workAreaSize.height,
-    x: 0,
-    y: 0,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    focusable: true,
-    type: "toolbar",
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: true,
-      webSecurity: false,
-    },
-    skipTaskbar: true,
-    hasShadow: false,
-    roundedCorners: false,
   });
 
   const NOTIFICATION_TITLE = "Basic Notification";
@@ -228,8 +206,8 @@ const createWindow = () => {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
     webcamWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#/webcam`);
-    controlWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#/controls`);
-    overlayWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#/overlay`);
+    // controlWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#/controls`);
+    // overlayWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#/overlay`);
   } else {
     mainWindow.loadFile(
       path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
@@ -238,20 +216,9 @@ const createWindow = () => {
       path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
       { hash: "webcam" }
     );
-    controlWindow.loadFile(
-      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
-      { hash: "controls" }
-    );
-    overlayWindow.loadFile(
-      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
-      { hash: "overlay" }
-    );
   }
 
-  // Initially hide the webcam, control, and overlay windows
   webcamWindow.hide();
-  controlWindow.hide();
-  overlayWindow.hide();
 
   // Handle window show/hide based on route changes
   ipcMain.handle("show-recording-windows", () => {
@@ -266,52 +233,21 @@ const createWindow = () => {
       height: 220,
     });
 
-    // Position control window at middle right
-    controlWindow.setBounds({
-      x: screenWidth - 420,
-      y: Math.floor((screenHeight - 450) / 2),
-      width: 400,
-      height: 450,
-    });
-
-    // Position overlay window to cover the entire screen
-    overlayWindow.setBounds({
-      x: 0,
-      y: 0,
-      width: screenWidth,
-      height: screenHeight,
-    });
-
     webcamWindow.setAlwaysOnTop(true, "floating");
-    controlWindow.setAlwaysOnTop(true, "floating");
-    overlayWindow.setAlwaysOnTop(true, "screen-saver");
-    overlayWindow.setVisibleOnAllWorkspaces(true, {
-      visibleOnFullScreen: true,
-    });
-
     webcamWindow.show();
-    controlWindow.show();
-    overlayWindow.show();
-    overlayWindow.setIgnoreMouseEvents(true);
   });
 
   // Add these handlers
   ipcMain.handle("minimize-windows", () => {
     webcamWindow.hide();
-    controlWindow.hide();
-    overlayWindow.hide();
   });
 
   ipcMain.handle("close-windows", () => {
     webcamWindow.close();
-    controlWindow.close();
-    overlayWindow.close();
   });
 
   ipcMain.handle("hide-recording-windows", () => {
     webcamWindow.hide();
-    controlWindow.hide();
-    overlayWindow.hide();
   });
 
   ipcMain.handle("show-preview", (_, url: string) => {
@@ -322,7 +258,6 @@ const createWindow = () => {
 
   // Open the DevTools.
   mainWindow.webContents.openDevTools();
-  controlWindow.webContents.openDevTools();
 
   // Add this near the top of createWindow function
   if (process.platform === "darwin") {
@@ -330,21 +265,38 @@ const createWindow = () => {
     systemPreferences.getMediaAccessStatus("screen");
   }
 
-  // Add IPC handlers for overlay
-  ipcMain.handle("set-overlay-interactive", (_event, interactive: boolean) => {
-    overlayWindow.setIgnoreMouseEvents(!interactive);
+  // Modify metadata tracking
+  ipcMain.handle("start-metadata-tracking", () => {
+    clickEvents = [];
+    cursorPositions = [];
+
+    cursorTrackingInterval = setInterval(() => {
+      const point = screen.getCursorScreenPoint();
+      cursorPositions.push({
+        x: point.x,
+        y: point.y,
+        timestamp: Date.now(),
+      });
+    }, 50);
+    return true;
   });
 
-  // Add a new IPC handler for overlay window bounds
-  ipcMain.handle(
-    "set-overlay-bounds",
-    (
-      _event,
-      bounds: { x: number; y: number; width: number; height: number }
-    ) => {
-      overlayWindow.setBounds(bounds);
+  ipcMain.handle("stop-metadata-tracking", () => {
+    if (cursorTrackingInterval) {
+      clearInterval(cursorTrackingInterval);
+      cursorTrackingInterval = null;
     }
-  );
+    return { clickEvents, cursorPositions };
+  });
+
+  ipcMain.handle("record-click", (_: any, click: { x: number; y: number }) => {
+    const currentTimestamp = Date.now();
+    clickEvents.push({
+      ...click,
+      timestamp: currentTimestamp,
+    });
+    return true;
+  });
 };
 
 app.on("ready", createWindow);
@@ -357,6 +309,44 @@ app.on("window-all-closed", () => {
 
 app.whenReady().then(() => {
   app.commandLine.appendSwitch("enable-experimental-web-platform-features");
+  console.log("Starting native mouse tracker...");
+
+  // Create absolute path to the script
+  const scriptPath = path.join(
+    __dirname,
+    "../../src/scripts/mouse_tracker.swift"
+  );
+  console.log("Script path:", scriptPath); // For debugging
+
+  const mouseTracker = spawn("swift", [scriptPath], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  mouseTracker.stdout.setEncoding("utf8");
+  mouseTracker.stderr.setEncoding("utf8");
+
+  // Add debug logging for the process working directory
+  console.log("Current working directory:", process.cwd());
+  console.log("__dirname:", __dirname);
+
+  mouseTracker.stdout.on("data", (data: string) => {
+    try {
+      // Try to parse the JSON output
+      const event = JSON.parse(data.trim());
+      console.log("Mouse Event:", event);
+    } catch (e) {
+      // If it's not JSON, just log the raw output
+      console.log("Mouse Tracker Output:", data.trim());
+    }
+  });
+
+  mouseTracker.stderr.on("data", (data: string) => {
+    console.error(`Mouse Tracker Error: ${data.trim()}`);
+  });
+
+  mouseTracker.on("close", (code: number) => {
+    console.log(`Mouse Tracker exited with code ${code}`);
+  });
 });
 
 app.on("activate", () => {
