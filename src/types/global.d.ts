@@ -30,6 +30,31 @@ interface Window {
     recordClick: (click: { x: number; y: number }) => Promise<void>;
     startMetadataTracking: () => Promise<void>;
     stopMetadataTracking: () => Promise<void>;
+
+    // Drawing Controls
+    enableDrawing: () => Promise<void>;
+    disableDrawing: () => Promise<void>;
+    showDrawingTools: () => Promise<void>;
+    hideDrawingTools: () => Promise<void>;
+    onUpdateBorderBounds: (
+      callback: (bounds: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }) => void
+    ) => void;
+    removeBorderBoundsListener: () => void;
+
+    // Stop Recording Flow
+    requestStopRecording: () => Promise<void>;
+    onExecuteStopRecording: (callback: () => void) => void;
+    removeExecuteStopRecordingListener: () => void;
+
+    // Clear Drawing Canvas Flow
+    clearDrawingCanvas: () => Promise<void>;
+    onDoClearCanvas: (callback: () => void) => void;
+    removeDoClearCanvasListener: () => void;
   };
 }
 

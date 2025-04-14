@@ -11,6 +11,12 @@ import {
 import path from "node:path";
 const { spawn } = require("child_process");
 
+// Keep track of all windows
+let mainWindow: BrowserWindow | null = null;
+let webcamWindow: BrowserWindow | null = null;
+let toolbarWindow: BrowserWindow | null = null;
+let drawingOverlayWindow: BrowserWindow | null = null;
+
 let clickEvents: Array<{
   x: number;
   y: number;
@@ -30,7 +36,7 @@ const createWindow = () => {
   const yPosition = screenHeight - windowHeight - 20;
 
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     x: xPosition,
     y: yPosition,
     width: windowWidth,
@@ -45,7 +51,7 @@ const createWindow = () => {
   });
 
   // Create webcam preview window
-  const webcamWindow = new BrowserWindow({
+  webcamWindow = new BrowserWindow({
     width: 220,
     height: 220,
     frame: false,
@@ -60,6 +66,47 @@ const createWindow = () => {
       nodeIntegration: true,
     },
   });
+
+  // Create toolbar window (vertical on left)
+  toolbarWindow = new BrowserWindow({
+    width: 120, // Increased width
+    height: 300, // Adjust height as needed
+    x: 10, // Position near left edge
+    y: screenHeight / 2 - 150, // Center vertically
+    frame: false,
+    transparent: true, // Optional: for rounded corners/styling
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false, // Keep nodeIntegration false for security
+    },
+  });
+
+  // Create drawing overlay window (covers screen)
+  drawingOverlayWindow = new BrowserWindow({
+    x: primaryDisplay.bounds.x,
+    y: primaryDisplay.bounds.y,
+    width: screenWidth,
+    height: screenHeight,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true, // Must be on top to draw over content
+    skipTaskbar: true,
+    resizable: false,
+    // IMPORTANT: Ignore mouse events initially so it doesn't block interaction
+    // We'll toggle this when drawing mode is active
+    // Note: On some platforms, even with ignore mouse events, it might capture focus briefly when shown.
+    focusable: false, // Try to prevent focus stealing
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false, // Keep nodeIntegration false for security
+    },
+  });
+  drawingOverlayWindow.setIgnoreMouseEvents(true, { forward: true }); // Forward allows underlying windows to receive events
 
   const NOTIFICATION_TITLE = "Basic Notification";
   const NOTIFICATION_BODY = "Notification from the Main process";
@@ -86,25 +133,6 @@ const createWindow = () => {
       }
     } else if (process.platform === "win32") {
       shell.openExternal("ms-settings:privacy-camera");
-    }
-    return hasMicrophonePermission;
-  });
-
-  ipcMain.handle("get-audio-permissions", async () => {
-    const hasMicrophonePermission =
-      systemPreferences.getMediaAccessStatus("microphone") === "granted";
-    if (hasMicrophonePermission) return hasMicrophonePermission;
-    if (process.platform === "darwin") {
-      const microPhoneGranted = await systemPreferences.askForMediaAccess(
-        "microphone"
-      );
-      if (!microPhoneGranted) {
-        shell.openExternal(
-          "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
-        );
-      }
-    } else if (process.platform === "win32") {
-      shell.openExternal("ms-settings:privacy-microphone");
     }
     return hasMicrophonePermission;
   });
@@ -206,6 +234,8 @@ const createWindow = () => {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
     webcamWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#/webcam`);
+    toolbarWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#/toolbar`); // Add toolbar route
+    drawingOverlayWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#/drawing`); // Add drawing route
     // controlWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#/controls`);
     // overlayWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#/overlay`);
   } else {
@@ -216,9 +246,21 @@ const createWindow = () => {
       path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
       { hash: "webcam" }
     );
+    toolbarWindow.loadFile(
+      // Add toolbar file load
+      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
+      { hash: "toolbar" }
+    );
+    drawingOverlayWindow.loadFile(
+      // Add drawing file load
+      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
+      { hash: "drawing" }
+    );
   }
 
   webcamWindow.hide();
+  toolbarWindow.hide(); // Hide initially
+  drawingOverlayWindow.hide(); // Hide initially
 
   // Handle window show/hide based on route changes
   ipcMain.handle("show-recording-windows", () => {
@@ -243,7 +285,10 @@ const createWindow = () => {
   });
 
   ipcMain.handle("close-windows", () => {
-    webcamWindow.close();
+    if (webcamWindow && !webcamWindow.isDestroyed()) webcamWindow.close();
+    if (toolbarWindow && !toolbarWindow.isDestroyed()) toolbarWindow.close(); // Close toolbar
+    if (drawingOverlayWindow && !drawingOverlayWindow.isDestroyed())
+      drawingOverlayWindow.close(); // Close drawing overlay
   });
 
   ipcMain.handle("hide-recording-windows", () => {
@@ -297,11 +342,135 @@ const createWindow = () => {
     });
     return true;
   });
+
+  // Show/Hide Drawing Tools
+  ipcMain.handle("show-drawing-tools", async () => {
+    try {
+      // --- Determine Shared Screen Bounds ---
+      // Assumption: Using the first screen source, like in ControlPanel.tsx
+      const sources = await desktopCapturer.getSources({ types: ["screen"] });
+      if (sources && sources.length > 0 && drawingOverlayWindow) {
+        const primarySource = sources[0];
+        const allDisplays = screen.getAllDisplays();
+        // Find the display that matches the source's display_id (if available)
+        // Or fallback to primary display if no match (might happen in some setups)
+        const sharedDisplay =
+          allDisplays.find(
+            (d) => d.id.toString() === primarySource.display_id
+          ) || screen.getPrimaryDisplay();
+
+        const bounds = sharedDisplay.bounds; // Use the bounds of the identified display
+
+        // Resize and position the overlay window
+        drawingOverlayWindow.setBounds(bounds);
+
+        // Send bounds to the overlay renderer for the yellow border
+        // Note: bounds are relative to the top-left of the combined screen space
+        // The renderer uses CSS pixels relative to the window, so send relative bounds
+        const relativeBounds = {
+          x: 0,
+          y: 0,
+          width: bounds.width,
+          height: bounds.height,
+        };
+        drawingOverlayWindow.webContents.send(
+          "update-border-bounds",
+          relativeBounds
+        );
+
+        // --- Show Windows ---
+        if (toolbarWindow) toolbarWindow.show();
+        if (drawingOverlayWindow) drawingOverlayWindow.show();
+      } else {
+        console.warn(
+          "Could not determine shared screen or drawing overlay window not found."
+        );
+        // Fallback: Just show windows without resizing/sending bounds
+        if (toolbarWindow) toolbarWindow.show();
+        if (drawingOverlayWindow) drawingOverlayWindow.show();
+      }
+    } catch (error) {
+      console.error("Error in show-drawing-tools:", error);
+      // Fallback in case of error
+      if (toolbarWindow) toolbarWindow.show();
+      if (drawingOverlayWindow) drawingOverlayWindow.show();
+    }
+  });
+
+  ipcMain.handle("hide-drawing-tools", () => {
+    if (toolbarWindow) toolbarWindow.hide();
+    if (drawingOverlayWindow) drawingOverlayWindow.hide();
+    if (drawingOverlayWindow)
+      drawingOverlayWindow.setIgnoreMouseEvents(true, { forward: true }); // Ensure mouse events are ignored when hidden
+  });
+
+  // Enable/Disable Drawing Interaction on Overlay
+  ipcMain.handle("enable-drawing", () => {
+    if (drawingOverlayWindow) drawingOverlayWindow.setIgnoreMouseEvents(false);
+  });
+
+  ipcMain.handle("disable-drawing", () => {
+    if (drawingOverlayWindow)
+      drawingOverlayWindow.setIgnoreMouseEvents(true, { forward: true });
+  });
+
+  // Start Cursor Tracking
+  ipcMain.handle("start-cursor-tracking", () => {
+    if (cursorTrackingInterval) return; // Already running
+    cursorPositions = []; // Reset positions
+    clickEvents = []; // Reset click events
+
+    // Permission Check (macOS specific for listening to global events)
+    if (process.platform === "darwin") {
+      const isTrusted = systemPreferences.isTrustedAccessibilityClient(false); // Check without prompting
+      if (!isTrusted) {
+        console.warn(
+          "Accessibility permission not granted. Click tracking may not work."
+        );
+        // Optionally notify the user or attempt to request permission again
+        // systemPreferences.isTrustedAccessibilityClient(true); // This would prompt
+      }
+    }
+
+    // Start tracking position
+    cursorTrackingInterval = setInterval(() => {
+      const point = screen.getCursorScreenPoint();
+      cursorPositions.push({
+        x: point.x,
+        y: point.y,
+        timestamp: Date.now(),
+      });
+    }, 50);
+  });
+
+  // Stop Recording Request Handler
+  ipcMain.handle("request-stop-recording", () => {
+    // Forward the stop request to the main window's renderer
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("execute-stop-recording");
+    } else {
+      console.warn("Main window not available to stop recording.");
+    }
+  });
+
+  // Clear Canvas Request Handler
+  ipcMain.handle("clear-drawing-canvas", () => {
+    // Forward the clear request to the drawing overlay window's renderer
+    if (drawingOverlayWindow && !drawingOverlayWindow.isDestroyed()) {
+      drawingOverlayWindow.webContents.send("do-clear-canvas");
+    } else {
+      console.warn("Drawing overlay window not available to clear canvas.");
+    }
+  });
 };
 
 app.on("ready", createWindow);
 
 app.on("window-all-closed", () => {
+  mainWindow = null;
+  webcamWindow = null;
+  toolbarWindow = null;
+  drawingOverlayWindow = null;
   if (process.platform !== "darwin") {
     app.quit();
   }

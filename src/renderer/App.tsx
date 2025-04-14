@@ -10,20 +10,24 @@ import { useEffect, useState } from "react";
 import DeviceSelection from "./components/DeviceSelection";
 import WebcamPreview from "./components/WebcamPreview";
 import RecordingPage from "./components/RecordingPage";
+import ToolbarPage from "./components/ToolbarPage";
+import DrawingOverlayPage from "./components/DrawingOverlayPage";
 
 function PermissionsPage() {
   const navigate = useNavigate();
   const [permissions, setPermissions] = useState<Record<string, boolean>>({
-    audio: false,
+    // audio: false,
     video: false,
     screen: false,
     accessibility: true,
   });
 
+  /*
   const handleGetAudioPermissions = async () => {
     const permission = await window?.electronApi?.getAudioPermissions();
     setPermissions((prev) => ({ ...prev, audio: permission }));
   };
+  */
 
   const handleGetVideoPermissions = async () => {
     const permission = await window?.electronApi?.getVideoPermissions();
@@ -41,7 +45,7 @@ function PermissionsPage() {
   };
 
   useEffect(() => {
-    handleGetAudioPermissions();
+    // handleGetAudioPermissions();
     handleGetVideoPermissions();
     handleGetScreenPermissions();
     handleGetAccessibilityPermissions();
@@ -100,6 +104,7 @@ function PermissionsPage() {
             {permissions.video ? "Enabled" : "Enable"}
           </Button>
         </div>
+        {/*
         <div
           style={{
             display: "flex",
@@ -116,6 +121,7 @@ function PermissionsPage() {
             {permissions.audio ? "Enabled" : "Enable"}
           </Button>
         </div>
+        */}
         <div
           style={{
             display: "flex",
@@ -166,6 +172,14 @@ function WebcamWindow() {
   return <WebcamPreview />;
 }
 
+function ToolbarWindow() {
+  return <ToolbarPage />;
+}
+
+function DrawingWindow() {
+  return <DrawingOverlayPage />;
+}
+
 export default function App() {
   return (
     <Router>
@@ -174,6 +188,8 @@ export default function App() {
         <Route path="/device-selection" element={<DeviceSelection />} />
         <Route path="/recording" element={<RecordingPage />} />
         <Route path="/webcam" element={<WebcamWindow />} />
+        <Route path="/toolbar" element={<ToolbarWindow />} />
+        <Route path="/drawing" element={<DrawingWindow />} />
       </Routes>
     </Router>
   );

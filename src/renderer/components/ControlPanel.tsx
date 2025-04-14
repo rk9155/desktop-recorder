@@ -19,6 +19,21 @@ export default function ControlPanel() {
     return () => clearInterval(timer);
   }, [isRecording, isPaused]);
 
+  // --- Listener for Stop Recording Execution ---
+  useEffect(() => {
+    const executeStop = () => {
+      console.log("Received execute-stop-recording request.");
+      handleStopRecording(); // Call the existing stop logic
+    };
+
+    window.electronApi?.onExecuteStopRecording(executeStop);
+
+    return () => {
+      window.electronApi?.removeExecuteStopRecordingListener();
+    };
+  }, []); // Run only once on mount
+  // --- End Listener ---
+
   const handleStartRecording = async () => {
     try {
       // First get the sources
@@ -94,6 +109,7 @@ export default function ControlPanel() {
       if (success) {
         setIsRecording(true);
         window.electronApi?.startMetadataTracking();
+        window.electronApi?.showDrawingTools();
       }
     } catch (error) {
       console.error("Failed to start recording:", error);
@@ -115,11 +131,20 @@ export default function ControlPanel() {
     }
   };
 
+  // This function now ONLY handles requesting the stop via IPC
+  const requestStopRecording = () => {
+    console.log("Requesting stop recording via IPC...");
+    window.electronApi?.requestStopRecording();
+    // The actual stop logic is now triggered by the main process via execute-stop-recording
+  };
+
+  // This function contains the actual stop logic
   const handleStopRecording = async () => {
     const blob = await recordingManager.stopRecording();
     if (blob) {
       recordingManager.cleanup();
       window.electronApi?.hideRecordingWindows();
+      window.electronApi?.hideDrawingTools();
       window.electronApi?.showPreview(URL.createObjectURL(blob));
       window.electronApi?.stopMetadataTracking().then((metadata) => {
         console.log(metadata);
@@ -143,7 +168,7 @@ export default function ControlPanel() {
     >
       <div style={{ display: "flex", flexDirection: "row", gap: 16 }}>
         {isRecording ? (
-          <Button onClick={handleStopRecording} icon={<CheckOne />}>
+          <Button onClick={requestStopRecording} icon={<CheckOne />}>
             Stop Recording
           </Button>
         ) : (
