@@ -17,7 +17,7 @@ function PermissionsPage() {
     audio: false,
     video: false,
     screen: false,
-    accessibility: false,
+    accessibility: true,
   });
 
   const handleGetAudioPermissions = async () => {
@@ -127,7 +127,7 @@ function PermissionsPage() {
           <Typography.Text>Accessibility</Typography.Text>
           <Button
             onClick={handleGetAccessibilityPermissions}
-            disabled={permissions.accessibility}
+            // disabled={permissions.accessibility}
           >
             {permissions.accessibility ? "Enabled" : "Enable"}
           </Button>
@@ -153,7 +153,7 @@ function PermissionsPage() {
         <Button
           type="primary"
           onClick={handleProceed}
-          disabled={!Object.values(permissions).every(Boolean)}
+          // disabled={!Object.values(permissions).every(Boolean)}
         >
           Proceed
         </Button>
